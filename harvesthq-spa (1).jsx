@@ -1,0 +1,883 @@
+import { useState, useEffect, useCallback, createContext, useContext, useRef, useMemo, useReducer } from "react";
+
+let _idCounter = 1000;
+const genId = () => `id-${++_idCounter}-${Date.now().toString(36)}`;
+const fmtDate = (d) => { const m=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"]; return `${m[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`; };
+const toISO = (y,m,d) => `${y}-${String(m+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+
+// ═══════════════ TOAST ═══════════════
+const ToastCtx = createContext();
+const useToast = () => useContext(ToastCtx);
+function ToastProvider({children}){
+  const [ts,setTs]=useState([]);
+  const add=useCallback((msg,type="success")=>{const id=genId();setTs(t=>[...t,{id,msg,type}]);setTimeout(()=>setTs(t=>t.filter(x=>x.id!==id)),3200);},[]);
+  return <ToastCtx.Provider value={add}>{children}
+    <div className="fixed bottom-6 right-6 z-[999] space-y-2 pointer-events-none">
+      {ts.map(t=><div key={t.id} className={`pointer-events-auto px-4 py-3 rounded-xl shadow-2xl text-sm font-bold flex items-center gap-2 border animate-[slideUp_0.3s_ease-out] ${t.type==="success"?"bg-emerald-600 text-white border-emerald-500":t.type==="error"?"bg-red-600 text-white border-red-500":"bg-slate-800 text-white border-slate-700"}`}>
+        <span className="material-symbols-outlined text-lg" style={{fontFamily:"'Material Symbols Outlined'"}}>{t.type==="success"?"check_circle":t.type==="error"?"error":"info"}</span>{t.msg}
+      </div>)}
+    </div>
+    <style>{`@keyframes slideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}`}</style>
+  </ToastCtx.Provider>;
+}
+
+// ═══════════════ MODAL ═══════════════
+function Modal({open,onClose,title,children,wide}){
+  if(!open) return null;
+  return <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" onClick={onClose}>
+    <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"/>
+    <div className={`relative bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden ${wide?"w-full max-w-2xl":"w-full max-w-lg"}`} onClick={e=>e.stopPropagation()}>
+      <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
+        <h3 className="text-lg font-bold text-slate-900 dark:text-white">{title}</h3>
+        <button onClick={onClose} className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"><Ic name="close"/></button>
+      </div>
+      {children}
+    </div>
+  </div>;
+}
+function ConfirmModal({open,onClose,onConfirm,title,message}){
+  return <Modal open={open} onClose={onClose} title={title||"Confirm"}>
+    <div className="p-6"><p className="text-sm text-slate-600 dark:text-slate-400">{message}</p></div>
+    <div className="px-6 py-4 bg-slate-50 dark:bg-slate-800/50 flex justify-end gap-3">
+      <button onClick={onClose} className="px-4 py-2 text-sm font-bold text-slate-500">Cancel</button>
+      <button onClick={()=>{onConfirm();onClose();}} className="px-5 py-2 bg-red-500 text-white text-sm font-bold rounded-lg hover:bg-red-400">Confirm</button>
+    </div>
+  </Modal>;
+}
+
+// ═══════════════ SEED DATA ═══════════════
+function createSeed(){
+  const clients=[
+    {id:"cl-1",name:"Smith Family Farms",type:"Producer",phone:"(555) 123-4567",email:"smith@farms.com",notes:"Reliable supplier, morning deliveries"},
+    {id:"cl-2",name:"Green Valley Pork",type:"Producer",phone:"(555) 234-5678",email:"gv@pork.com",notes:"Often delayed, needs reminder calls"},
+    {id:"cl-3",name:"Riverside Livestock",type:"Producer",phone:"(555) 345-6789",email:"info@riverside.com",notes:"Large mixed batches"},
+    {id:"cl-4",name:"Oak Ridge Breeders",type:"Producer",phone:"(555) 456-7890",email:"oak@breeders.com",notes:"Specialized breeds, health certs required"},
+    {id:"cl-5",name:"John Doe",type:"Customer",phone:"(555) 987-6543",email:"john.doe@example.com",notes:"VIP customer, prefers thick-cut steaks",vip:true},
+    {id:"cl-6",name:"Jane Smith",type:"Customer",phone:"(555) 876-5432",email:"jane.smith@work.com",notes:""},
+    {id:"cl-7",name:"Robert Brown",type:"Customer",phone:"(555) 765-4321",email:"rbrown@provider.net",notes:"Prefers whole hog processing"},
+    {id:"cl-8",name:"Emily Davis",type:"Customer",phone:"(555) 654-3210",email:"emily.davis@web.com",notes:""},
+    {id:"cl-9",name:"John Miller",type:"Customer",phone:"(555) 543-2109",email:"jmiller88@email.com",notes:"Requests extra tallow"},
+    {id:"cl-10",name:"Sarah Miller",type:"Customer",phone:"(555) 432-1098",email:"sarah@miller.com",notes:""},
+  ];
+  const appointments=[
+    {id:"ap-1",day:"2026-06-01",producerId:"cl-1",animalCount:3,confirmed:true,arrivalPosition:1,notes:""},
+    {id:"ap-2",day:"2026-06-01",producerId:"cl-2",animalCount:2,confirmed:true,arrivalPosition:2,notes:""},
+    {id:"ap-3",day:"2026-06-02",producerId:"cl-3",animalCount:2,confirmed:true,arrivalPosition:1,notes:""},
+    {id:"ap-4",day:"2026-06-02",producerId:"cl-4",animalCount:2,confirmed:true,arrivalPosition:2,notes:""},
+    {id:"ap-5",day:"2026-06-03",producerId:"cl-1",animalCount:2,confirmed:true,arrivalPosition:1,notes:""},
+    {id:"ap-6",day:"2026-06-04",producerId:"cl-2",animalCount:1,confirmed:true,arrivalPosition:1,notes:""},
+    {id:"ap-7",day:"2026-06-04",producerId:"cl-3",animalCount:2,confirmed:false,arrivalPosition:2,notes:""},
+    {id:"ap-8",day:"2026-06-05",producerId:"cl-1",animalCount:2,confirmed:true,arrivalPosition:1,notes:""},
+    {id:"ap-9",day:"2026-06-05",producerId:"cl-2",animalCount:1,confirmed:true,arrivalPosition:2,notes:""},
+    {id:"ap-10",day:"2026-06-05",producerId:"cl-3",animalCount:1,confirmed:true,arrivalPosition:3,notes:""},
+    {id:"ap-11",day:"2026-06-05",producerId:"cl-4",animalCount:1,confirmed:true,arrivalPosition:4,notes:""},
+    {id:"ap-12",day:"2026-06-08",producerId:"cl-1",animalCount:2,confirmed:true,arrivalPosition:1,notes:""},
+    {id:"ap-13",day:"2026-06-08",producerId:"cl-2",animalCount:2,confirmed:true,arrivalPosition:2,notes:""},
+    {id:"ap-14",day:"2026-06-08",producerId:"cl-3",animalCount:2,confirmed:false,arrivalPosition:3,notes:""},
+    {id:"ap-15",day:"2026-06-08",producerId:"cl-4",animalCount:1,confirmed:true,arrivalPosition:4,notes:""},
+    {id:"ap-16",day:"2026-06-09",producerId:"cl-3",animalCount:1,confirmed:false,arrivalPosition:1,notes:""},
+    {id:"ap-17",day:"2026-06-10",producerId:"cl-1",animalCount:2,confirmed:true,arrivalPosition:1,notes:""},
+    {id:"ap-18",day:"2026-06-10",producerId:"cl-2",animalCount:2,confirmed:true,arrivalPosition:2,notes:""},
+    {id:"ap-19",day:"2026-06-10",producerId:"cl-4",animalCount:1,confirmed:true,arrivalPosition:3,notes:""},
+    {id:"ap-20",day:"2026-06-12",producerId:"cl-1",animalCount:3,confirmed:true,arrivalPosition:1,notes:""},
+    {id:"ap-21",day:"2026-06-12",producerId:"cl-3",animalCount:2,confirmed:true,arrivalPosition:2,notes:""},
+    {id:"ap-22",day:"2026-06-15",producerId:"cl-1",animalCount:3,confirmed:true,arrivalPosition:1,notes:""},
+    {id:"ap-23",day:"2026-06-15",producerId:"cl-2",animalCount:2,confirmed:false,arrivalPosition:2,notes:""},
+    {id:"ap-24",day:"2026-06-15",producerId:"cl-3",animalCount:3,confirmed:true,arrivalPosition:3,notes:""},
+    {id:"ap-25",day:"2026-06-15",producerId:"cl-4",animalCount:2,confirmed:true,arrivalPosition:4,notes:""},
+  ];
+  const instr={steakThickness:"1.5 inch",roastSize:"3-4 lbs",groundPack:"1 lb tubes",patties:"Bulk only",specialItems:["Summer Sausage"],notes:"Double-wrap T-bones"};
+  const orders=[
+    {id:"ord-1",day:"2026-06-01",producerId:"cl-1",customerId:"cl-5",portion:"1/2 Beef",tag:"BF-001",cut:true,invoiced:true,notified:true,paid:true,hasInstructions:true,instructions:instr},
+    {id:"ord-2",day:"2026-06-01",producerId:"cl-1",customerId:"cl-6",portion:"1/4 Beef",tag:"BF-001",cut:true,invoiced:true,notified:true,paid:true,hasInstructions:true,instructions:instr},
+    {id:"ord-3",day:"2026-06-02",producerId:"cl-3",customerId:"cl-7",portion:"Whole Hog",tag:"HG-042",cut:true,invoiced:true,notified:true,paid:true,hasInstructions:true,instructions:instr},
+    {id:"ord-4",day:"2026-06-10",producerId:"cl-1",customerId:"cl-5",portion:"1/2 Beef",tag:"BF-010",cut:true,invoiced:false,notified:false,paid:false,hasInstructions:true,instructions:instr},
+    {id:"ord-5",day:"2026-06-10",producerId:"cl-2",customerId:"cl-8",portion:"1/2 Beef",tag:"BF-011",cut:true,invoiced:false,notified:false,paid:false,hasInstructions:true,instructions:instr},
+    {id:"ord-6",day:"2026-06-12",producerId:"cl-1",customerId:"cl-9",portion:"1/2 Beef",tag:"BF-012",cut:true,invoiced:true,notified:false,paid:false,hasInstructions:true,instructions:instr},
+    {id:"ord-7",day:"2026-06-15",producerId:"cl-1",customerId:"cl-5",portion:"1/2 Beef",tag:"BF-015",cut:true,invoiced:true,notified:true,paid:false,hasInstructions:true,instructions:instr},
+    {id:"ord-8",day:"2026-06-15",producerId:"cl-2",customerId:"cl-6",portion:"1/4 Beef",tag:"BF-016",cut:true,invoiced:true,notified:true,paid:false,hasInstructions:false,instructions:null},
+    {id:"ord-9",day:"2026-06-15",producerId:"cl-3",customerId:"cl-7",portion:"Whole Hog",tag:"HG-015",cut:true,invoiced:true,notified:true,paid:false,hasInstructions:true,instructions:instr},
+    {id:"ord-10",day:"2026-06-03",producerId:"cl-1",customerId:"cl-10",portion:"1/4 Beef",tag:"BF-003",cut:false,invoiced:false,notified:false,paid:false,hasInstructions:false,instructions:null},
+    {id:"ord-11",day:"2026-06-04",producerId:"cl-2",customerId:"cl-5",portion:"1/2 Beef",tag:"BF-004",cut:false,invoiced:false,notified:false,paid:false,hasInstructions:true,instructions:instr},
+    {id:"ord-12",day:"2026-06-08",producerId:"cl-1",customerId:"cl-9",portion:"Whole Hog",tag:"HG-008",cut:false,invoiced:false,notified:false,paid:false,hasInstructions:false,instructions:null},
+  ];
+  const smsLog=[
+    {id:"sms-1",orderId:"ord-7",to:"(555) 987-6543",kind:"order_confirmed",body:"Hi John, we've received your order. We will notify you when processing begins.",sentAt:"2023-10-24T09:12:00",status:"delivered"},
+    {id:"sms-2",orderId:"ord-7",to:"(555) 987-6543",kind:"processing_update",body:"Your animal has been checked in and cutting is scheduled for tomorrow.",sentAt:"2023-10-25T14:45:00",status:"delivered"},
+  ];
+  const notifications=[
+    {id:"n-1",message:"3 orders missing cutting instructions",type:"warning",read:false,createdAt:Date.now()-3600000},
+    {id:"n-2",message:"June 8 is overbooked (7/5 animals)",type:"error",read:false,createdAt:Date.now()-7200000},
+    {id:"n-3",message:"Smith Family Farms confirmed for June 15",type:"success",read:true,createdAt:Date.now()-86400000},
+  ];
+  const settings={cattleLimit:5,sheepLimit:45,pigsLimit:20,weightLimit:5000,
+    smsTemplates:{appt_confirm:"Reminder: You have an appointment tomorrow.",instructions_needed:"Hi {name}, we need your cutting instructions for order #{orderId}.",ready_pickup:"Your order #{orderId} is ready for pickup."}};
+  return {clients,appointments,orders,smsLog,notifications,settings};
+}
+
+// ═══════════════ REDUCER ═══════════════
+function reducer(state,action){
+  const {type,payload:p}=action;
+  switch(type){
+    case "ADD_CLIENT": return {...state,clients:[...state.clients,{...p,id:genId()}]};
+    case "UPDATE_CLIENT": return {...state,clients:state.clients.map(c=>c.id===p.id?{...c,...p}:c)};
+    case "DELETE_CLIENT": return {...state,clients:state.clients.filter(c=>c.id!==p)};
+    case "ADD_APPOINTMENT": return {...state,appointments:[...state.appointments,{...p,id:genId()}]};
+    case "UPDATE_APPOINTMENT": return {...state,appointments:state.appointments.map(a=>a.id===p.id?{...a,...p}:a)};
+    case "DELETE_APPOINTMENT": return {...state,appointments:state.appointments.filter(a=>a.id!==p)};
+    case "TOGGLE_CONFIRM": return {...state,appointments:state.appointments.map(a=>a.id===p?{...a,confirmed:!a.confirmed}:a)};
+    case "ADD_ORDER": return {...state,orders:[...state.orders,{...p,id:genId()}]};
+    case "UPDATE_ORDER": return {...state,orders:state.orders.map(o=>o.id===p.id?{...o,...p}:o)};
+    case "DELETE_ORDER": return {...state,orders:state.orders.filter(o=>o.id!==p)};
+    case "TOGGLE_FLAG": return {...state,orders:state.orders.map(o=>o.id===p.orderId?{...o,[p.flag]:!o[p.flag]}:o)};
+    case "ADD_SMS": return {...state,smsLog:[...state.smsLog,{...p,id:genId(),sentAt:new Date().toISOString(),status:"delivered"}]};
+    case "UPDATE_SETTINGS": return {...state,settings:{...state.settings,...p}};
+    case "ADD_NOTIF": return {...state,notifications:[{id:genId(),...p,read:false,createdAt:Date.now()},...state.notifications]};
+    case "READ_NOTIF": return {...state,notifications:state.notifications.map(n=>n.id===p?{...n,read:true}:n)};
+    case "READ_ALL": return {...state,notifications:state.notifications.map(n=>({...n,read:true}))};
+    default: return state;
+  }
+}
+const AppCtx=createContext();
+const useApp=()=>useContext(AppCtx);
+
+// ═══════════════ SHARED COMPONENTS ═══════════════
+// Load Material Symbols font
+const FontLoader = () => {
+  useEffect(() => {
+    if (!document.querySelector('link[href*="material-symbols"]')) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = "https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0";
+      document.head.appendChild(link);
+    }
+  }, []);
+  return null;
+};
+const Ic=({name,className=""})=><span className={`material-symbols-outlined ${className}`} style={{fontFamily:"'Material Symbols Outlined'",fontWeight:"normal",fontStyle:"normal",fontSize:"inherit",lineHeight:1,letterSpacing:"normal",textTransform:"none",display:"inline-block",whiteSpace:"nowrap",wordWrap:"normal",direction:"ltr",WebkitFontSmoothing:"antialiased"}}>{name}</span>;
+const NAV=[{id:"dashboard",icon:"dashboard",label:"Dashboard"},{id:"calendar",icon:"calendar_today",label:"Calendar"},{id:"orders",icon:"package_2",label:"Orders"},{id:"clients",icon:"group",label:"Clients"},{id:"management",icon:"settings",label:"Management"}];
+
+function computeDay(day,appts,orders,cap){
+  const da=appts.filter(a=>a.day===day), dord=orders.filter(o=>o.day===day);
+  const booked=da.reduce((s,a)=>s+a.animalCount,0);
+  if(!da.length&&!dord.length) return {status:null,booked,capacity:cap};
+  if(dord.length>0){
+    const f=k=>dord.every(o=>o[k]);
+    if(f("paid")&&f("notified")&&f("invoiced")&&f("cut")) return {status:"closed",label:"Closed",booked,capacity:cap};
+    if(f("notified")&&f("invoiced")&&f("cut")) return {status:"notified_complete",label:"Notified",booked,capacity:cap};
+    if(f("invoiced")&&f("cut")) return {status:"invoiced_complete",label:"Invoiced",booked,capacity:cap};
+    if(f("hasInstructions")&&f("cut")) return {status:"instructions_complete",label:"Instructions Done",booked,capacity:cap};
+  }
+  if(booked>cap) return {status:"overbooked",label:"Overbooked",booked,capacity:cap};
+  if(booked===cap) return {status:"full",label:"Full",booked,capacity:cap};
+  return {status:"open",label:"Open",booked,capacity:cap};
+}
+
+const Field=({label,children})=><div className="space-y-1.5"><label className="text-[11px] font-bold uppercase tracking-widest text-slate-400">{label}</label>{children}</div>;
+const iCls="w-full rounded-lg border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 py-2.5 px-3 text-sm font-medium text-slate-900 dark:text-white focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500";
+const StatusPill=({status,children})=>{
+  const c={Confirmed:"bg-emerald-500 text-white",Submitted:"bg-emerald-500 text-white",Pending:"bg-red-500 text-white",Missing:"bg-red-500 text-white",Producer:"text-emerald-400 bg-emerald-500/15",Customer:"text-amber-500 bg-amber-500/15"};
+  return <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-tight ${c[status]||"bg-slate-200 text-slate-600"}`}>{children||status}</span>;
+};
+const SmBtn=({icon,children,primary,onClick,danger})=>
+  <button onClick={onClick} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-bold transition-colors ${danger?"bg-red-500/10 text-red-500 hover:bg-red-500/20 border border-red-500/20":primary?"bg-emerald-500 hover:bg-emerald-400 text-slate-900 shadow-lg shadow-emerald-500/20":"border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"}`}>
+    {icon&&<Ic name={icon} className="text-lg"/>}{children}
+  </button>;
+const StatCard=({label,value,icon,iconBg,trend,trendColor="text-emerald-400",borderColor,onClick})=>
+  <div onClick={onClick} className={`bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm ${borderColor||""} ${onClick?"cursor-pointer hover:shadow-md transition-shadow":""}`}>
+    <div className="flex justify-between items-start mb-1.5"><p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</p>
+    {icon&&<span className={`p-1.5 rounded-lg ${iconBg}`}><Ic name={icon} className="text-lg"/></span>}</div>
+    <p className="text-2xl font-black text-slate-900 dark:text-white">{value}</p>
+    {trend&&<div className={`mt-1 flex items-center text-xs font-bold ${trendColor}`}>{trend}</div>}
+  </div>;
+const Breadcrumb=({items})=><nav className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 mb-1.5 uppercase tracking-widest"><span>App</span>{items.map((it,i)=><span key={i} className="flex items-center gap-1.5"><Ic name="chevron_right" className="text-[12px]"/><span className={i===items.length-1?"text-emerald-400":""}>{it}</span></span>)}</nav>;
+const PageTitle=({children})=><h1 className="text-2xl font-black text-slate-900 dark:text-white tracking-tight">{children}</h1>;
+const TabBar=({tabs,active,onChange})=><div className="flex border-b border-slate-200 dark:border-slate-800 overflow-x-auto">{tabs.map(t=><button key={t.id} onClick={()=>onChange(t.id)} className={`px-5 py-2.5 text-sm font-medium whitespace-nowrap transition-all ${active===t.id?"font-bold text-emerald-400 border-b-2 border-emerald-400":"text-slate-400 hover:text-slate-600 border-b-2 border-transparent"}`}>{t.label}{t.count!=null&&<span className="ml-1.5 text-[10px] bg-slate-200 dark:bg-slate-700 px-1.5 py-0.5 rounded-full">{t.count}</span>}</button>)}</div>;
+
+function TableShell({title,actions,children,pagination,page:pg,totalPages,onPageChange}){
+  return <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+    {title&&<div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex flex-wrap gap-3 items-center justify-between"><h3 className="text-base font-bold text-slate-900 dark:text-white">{title}</h3><div className="flex gap-2">{actions}</div></div>}
+    <div className="overflow-x-auto">{children}</div>
+    {pagination&&<div className="px-5 py-3 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between">
+      <p className="text-[11px] text-slate-400 font-bold">{pagination}</p>
+      {totalPages>1&&<div className="flex items-center gap-1">
+        <button disabled={pg<=1} onClick={()=>onPageChange(pg-1)} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-400 disabled:opacity-30"><Ic name="chevron_left" className="text-lg"/></button>
+        {Array.from({length:totalPages},(_,i)=><button key={i} onClick={()=>onPageChange(i+1)} className={`w-7 h-7 rounded text-xs font-black ${pg===i+1?"bg-emerald-500 text-slate-900":"text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700"}`}>{i+1}</button>)}
+        <button disabled={pg>=totalPages} onClick={()=>onPageChange(pg+1)} className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-400 disabled:opacity-30"><Ic name="chevron_right" className="text-lg"/></button>
+      </div>}
+    </div>}
+  </div>;
+}
+const Footer=()=><footer className="mt-auto border-t border-slate-200 dark:border-slate-800 px-6 py-4 bg-white dark:bg-slate-900 shrink-0"><div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-2"><div className="flex items-center gap-2 opacity-40"><Ic name="potted_plant" className="text-lg"/><span className="text-[10px] font-bold uppercase tracking-widest">HarvestHQ v2.4</span></div><div className="flex gap-5">{["Support","Privacy","Terms"].map(t=><button key={t} className="text-[10px] font-bold uppercase tracking-widest text-slate-400 hover:text-emerald-500 transition-colors">{t}</button>)}</div></div></footer>;
+
+function Sidebar({currentPage,onNavigate,collapsed,onToggle}){
+  const {state}=useApp();
+  const toCut=state.orders.filter(o=>!o.cut).length;
+  return <aside className={`${collapsed?"w-20":"w-64"} border-r border-slate-700/50 bg-slate-900 flex flex-col shrink-0 transition-all duration-300`}>
+    <div className="p-5 flex items-center gap-3">
+      <div className="bg-emerald-500 size-10 rounded-lg flex items-center justify-center text-slate-900 shadow-lg shadow-emerald-500/20 shrink-0 cursor-pointer" onClick={onToggle}><Ic name="potted_plant" className="font-bold"/></div>
+      {!collapsed&&<div className="overflow-hidden"><h1 className="font-bold text-lg leading-none text-white tracking-tight">HarvestHQ</h1><p className="text-[11px] text-slate-500 font-medium mt-0.5">Operations Platform</p></div>}
+    </div>
+    <nav className="flex-1 px-3 py-3 space-y-0.5">
+      {NAV.map(it=><button key={it.id} onClick={()=>onNavigate(it.id)} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg font-medium transition-all duration-200 relative ${currentPage===it.id?"bg-emerald-500/15 text-emerald-400 font-semibold":"text-slate-400 hover:bg-slate-800 hover:text-slate-200"}`}>
+        <Ic name={it.icon} className="text-xl"/>{!collapsed&&<span className="text-sm">{it.label}</span>}
+        {it.id==="orders"&&!collapsed&&toCut>0&&<span className="ml-auto text-[10px] font-bold bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded-full">{toCut}</span>}
+      </button>)}
+    </nav>
+    <div className={`p-3 border-t border-slate-700/50 ${collapsed?"px-2":""}`}>
+      <div className={`flex items-center gap-3 p-2 rounded-xl bg-slate-800/60 ${collapsed?"justify-center":""}`}>
+        <div className="size-9 rounded-full bg-gradient-to-br from-emerald-400 to-emerald-600 flex items-center justify-center text-white text-sm font-bold shrink-0">JW</div>
+        {!collapsed&&<><div className="flex-1 min-w-0"><p className="text-sm font-bold truncate text-slate-200">James Wilson</p><p className="text-[11px] text-slate-500 truncate">Admin</p></div>
+        <button onClick={()=>onNavigate("login")} className="text-slate-500 hover:text-red-400" title="Sign Out"><Ic name="logout" className="text-lg"/></button></>}
+      </div>
+    </div>
+  </aside>;
+}
+
+function TopBar({onSearch,searchValue,onNavigate}){
+  const {state,dispatch}=useApp();
+  const [notifOpen,setNotifOpen]=useState(false);
+  const unread=state.notifications.filter(n=>!n.read).length;
+  return <header className="h-14 border-b border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md flex items-center justify-between px-6 shrink-0 z-10 relative">
+    <div className="flex items-center gap-4">
+      <div className="flex items-center gap-2.5"><Ic name="store" className="text-slate-400 text-lg"/><h2 className="font-bold text-slate-900 dark:text-white text-sm">Valley Meat Lockers</h2></div>
+      <div className="h-5 w-px bg-slate-200 dark:bg-slate-700 hidden md:block"/>
+      <div className="relative w-60 hidden md:block">
+        <Ic name="search" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm"/>
+        <input className="w-full pl-8 pr-8 py-1.5 rounded-lg border-none bg-slate-100 dark:bg-slate-800 text-sm focus:ring-2 focus:ring-emerald-500/50 text-slate-900 dark:text-white placeholder-slate-400" placeholder="Global search..." value={searchValue} onChange={e=>onSearch(e.target.value)}/>
+        {searchValue&&<button onClick={()=>onSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"><Ic name="close" className="text-sm"/></button>}
+      </div>
+    </div>
+    <div className="flex items-center gap-2">
+      <div className="relative">
+        <button onClick={()=>setNotifOpen(!notifOpen)} className="relative p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors">
+          <Ic name="notifications" className="text-xl"/>{unread>0&&<span className="absolute top-1.5 right-1.5 size-2.5 bg-red-500 rounded-full border-2 border-white dark:border-slate-900 animate-pulse"/>}
+        </button>
+        {notifOpen&&<div className="absolute right-0 top-12 w-80 bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden z-50">
+          <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
+            <span className="text-sm font-bold text-slate-900 dark:text-white">Notifications</span>
+            {unread>0&&<button onClick={()=>{dispatch({type:"READ_ALL"});}} className="text-[11px] font-bold text-emerald-500 hover:underline">Mark all read</button>}
+          </div>
+          <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+            {state.notifications.length===0&&<p className="p-4 text-sm text-slate-400 text-center">No notifications</p>}
+            {state.notifications.slice(0,8).map(n=><div key={n.id} onClick={()=>dispatch({type:"READ_NOTIF",payload:n.id})} className={`px-4 py-3 flex gap-3 cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800/50 ${!n.read?"bg-emerald-500/5":""}`}>
+              <Ic name={n.type==="warning"?"warning":n.type==="error"?"error":"check_circle"} className={`text-lg shrink-0 ${n.type==="warning"?"text-amber-500":n.type==="error"?"text-red-500":"text-emerald-500"}`}/>
+              <div className="flex-1 min-w-0"><p className={`text-sm ${!n.read?"font-bold text-slate-900 dark:text-white":"text-slate-500"}`}>{n.message}</p><p className="text-[10px] text-slate-400 mt-0.5">{Math.round((Date.now()-n.createdAt)/3600000)}h ago</p></div>
+              {!n.read&&<div className="size-2 bg-emerald-500 rounded-full shrink-0 mt-1.5"/>}
+            </div>)}
+          </div>
+        </div>}
+      </div>
+      <button onClick={()=>onNavigate("cutsheet")} className="p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors" title="Public Portal"><Ic name="open_in_new" className="text-xl"/></button>
+    </div>
+  </header>;
+}
+
+// ═══════════════ LOGIN ═══════════════
+function LoginPage({onNavigate}){
+  const [tab,setTab]=useState("email");const [email,setEmail]=useState("");const [pass,setPass]=useState("");const toast=useToast();
+  const go=()=>{if(!email){toast("Enter your email","error");return;}if(tab==="email"&&!pass){toast("Enter password","error");return;}toast("Welcome back, James!");onNavigate("dashboard");};
+  return <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+    <div className="w-full max-w-md bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 overflow-hidden">
+      <header className="flex items-center justify-between px-7 py-5 border-b border-slate-800"><div className="flex items-center gap-3"><div className="size-8 bg-emerald-500 rounded-lg flex items-center justify-center text-slate-900"><Ic name="potted_plant" className="text-xl font-bold"/></div><h2 className="text-white text-lg font-bold tracking-tight">HarvestHQ</h2></div></header>
+      <div className="px-7 pt-7"><div className="w-full bg-emerald-500/10 rounded-xl h-32 flex items-center justify-center relative overflow-hidden"><div className="absolute inset-0 bg-gradient-to-br from-emerald-500/20 to-transparent"/><div className="z-10 bg-slate-900 p-4 rounded-full shadow-xl"><Ic name="lock" className="text-emerald-400 text-3xl"/></div></div></div>
+      <div className="px-7 pt-5 text-center"><h1 className="text-white text-xl font-bold">Staff Login</h1><p className="text-slate-400 text-sm mt-1">Secure access for HarvestHQ team members</p></div>
+      <div className="px-7 pt-5"><div className="flex border-b border-slate-800">{["email","magic"].map(t=><button key={t} onClick={()=>setTab(t)} className={`flex-1 pb-2.5 text-sm font-semibold border-b-2 transition-all ${tab===t?"border-emerald-400 text-white":"border-transparent text-slate-500"}`}>{t==="email"?"Email & Password":"Magic Link"}</button>)}</div></div>
+      <div className="px-7 py-7 space-y-4">
+        <Field label="Email Address"><div className="relative"><Ic name="mail" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-lg"/><input value={email} onChange={e=>setEmail(e.target.value)} className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-700 bg-slate-800 text-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="name@harvesthq.com" onKeyDown={e=>e.key==="Enter"&&go()}/></div></Field>
+        {tab==="email"&&<Field label="Password"><div className="relative"><Ic name="lock" className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-lg"/><input type="password" value={pass} onChange={e=>setPass(e.target.value)} className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-slate-700 bg-slate-800 text-white focus:ring-2 focus:ring-emerald-500 outline-none" placeholder="••••••••" onKeyDown={e=>e.key==="Enter"&&go()}/></div></Field>}
+        <button onClick={go} className="w-full bg-emerald-500 hover:bg-emerald-400 text-slate-900 font-bold py-3 rounded-lg transition-colors shadow-lg shadow-emerald-500/20 mt-1">{tab==="email"?"Sign In":"Send Magic Link"}</button>
+        <p className="text-[11px] text-slate-500 text-center">By logging in, you agree to our Internal Security Protocol.</p>
+        <button onClick={()=>{toast("Dev mode — skipping auth");onNavigate("dashboard");}} className="w-full mt-2 py-2 rounded-lg border border-dashed border-slate-700 text-slate-500 hover:text-amber-400 hover:border-amber-400/50 text-[11px] font-mono font-bold uppercase tracking-widest transition-colors flex items-center justify-center gap-2">
+          <Ic name="code" className="text-sm"/>Dev Bypass → Dashboard
+        </button>
+      </div>
+    </div>
+  </div>;
+}
+
+// ═══════════════ DASHBOARD ═══════════════
+function DashboardPage(){
+  const {state}=useApp();const t=state.orders.length;const toCut=state.orders.filter(o=>!o.cut).length;const toInv=state.orders.filter(o=>o.cut&&!o.invoiced).length;const miss=state.orders.filter(o=>!o.hasInstructions).length;
+  return <div className="space-y-5">
+    <div><Breadcrumb items={["Dashboard"]}/><PageTitle>Operational Analytics</PageTitle></div>
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <StatCard label="Total Orders" value={t} icon="inventory_2" iconBg="bg-emerald-500/15 text-emerald-400"/>
+      <StatCard label="To Cut" value={toCut} icon="content_cut" iconBg="bg-amber-500/15 text-amber-400" borderColor={toCut>0?"border-l-4 border-l-amber-500":""}/>
+      <StatCard label="To Invoice" value={toInv} icon="receipt_long" iconBg="bg-blue-500/15 text-blue-400" borderColor={toInv>0?"border-l-4 border-l-blue-500":""}/>
+      <StatCard label="Missing Instructions" value={miss} icon="warning" iconBg="bg-red-500/15 text-red-400" trendColor="text-red-400" trend={miss>0?"Action required":"All done"} borderColor={miss>0?"border-l-4 border-l-red-500":""}/>
+    </div>
+    <div className="bg-white dark:bg-slate-900 p-5 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+      <h4 className="text-sm font-bold text-slate-900 dark:text-white mb-1">Order Pipeline</h4><p className="text-[11px] text-slate-400 mb-4">Progress through processing stages</p>
+      {[["Instructions",state.orders.filter(o=>o.hasInstructions).length],["Cut",state.orders.filter(o=>o.cut).length],["Invoiced",state.orders.filter(o=>o.invoiced).length],["Notified",state.orders.filter(o=>o.notified).length],["Paid",state.orders.filter(o=>o.paid).length]].map(([label,done])=>
+        <div key={label} className="mb-3"><div className="flex justify-between text-sm font-bold mb-1 text-slate-700 dark:text-slate-200"><span>{label}</span><span>{done}/{t} ({t>0?Math.round(done/t*100):0}%)</span></div>
+        <div className="h-2 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-emerald-500 rounded-full transition-all duration-700" style={{width:`${t>0?(done/t)*100:0}%`}}/></div></div>
+      )}
+    </div>
+  </div>;
+}
+
+// ═══════════════ CALENDAR ═══════════════
+function CalendarPage({onNavigate}){
+  const {state}=useApp();const [year,setYear]=useState(2026);const [month,setMonth]=useState(5);
+  const cap=state.settings.cattleLimit;const dim=new Date(year,month+1,0).getDate();const fdow=new Date(year,month,1).getDay();
+  const mNames=["January","February","March","April","May","June","July","August","September","October","November","December"];
+  const cells=useMemo(()=>{const a=[];for(let i=0;i<fdow;i++) a.push({dayNum:null});for(let d=1;d<=dim;d++){const ds=toISO(year,month,d);a.push({dayNum:d,dayStr:ds,...computeDay(ds,state.appointments,state.orders,cap)});}while(a.length%7) a.push({dayNum:null});return a;},[year,month,state.appointments,state.orders,cap,dim,fdow]);
+
+  const today = new Date();
+  const isToday = (d) => d && year === today.getFullYear() && month === today.getMonth() && d === today.getDate();
+
+  // Status → background + accent colors
+  const cellBg = {
+    open: "bg-white dark:bg-slate-900",
+    full: "bg-amber-50 dark:bg-amber-950/30",
+    overbooked: "bg-red-50 dark:bg-red-950/30",
+    instructions_complete: "bg-emerald-50 dark:bg-emerald-950/30",
+    invoiced_complete: "bg-yellow-50 dark:bg-yellow-950/30",
+    notified_complete: "bg-blue-50 dark:bg-blue-950/30",
+    closed: "bg-slate-100 dark:bg-slate-800/60",
+  };
+  const pillBg = {
+    open: "bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400",
+    full: "bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400",
+    overbooked: "bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-400",
+    instructions_complete: "bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400",
+    invoiced_complete: "bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-500",
+    notified_complete: "bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-400",
+    closed: "bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-400",
+  };
+  const accentBar = {
+    open: "", full: "border-t-2 border-t-amber-400",
+    overbooked: "border-t-2 border-t-red-500", instructions_complete: "border-t-2 border-t-emerald-500",
+    invoiced_complete: "border-t-2 border-t-yellow-400", notified_complete: "border-t-2 border-t-blue-400",
+    closed: "border-t-2 border-t-slate-400",
+  };
+
+  const prev=()=>{if(month===0){setMonth(11);setYear(year-1);}else setMonth(month-1);};
+  const next=()=>{if(month===11){setMonth(0);setYear(year+1);}else setMonth(month+1);};
+  const goToday=()=>{setYear(today.getFullYear());setMonth(today.getMonth());};
+
+  return <div className="space-y-6">
+    {/* Header */}
+    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div><Breadcrumb items={["Calendar"]}/><PageTitle>Operational Calendar</PageTitle></div>
+      <div className="flex items-center gap-3">
+        <button onClick={goToday} className="px-3 py-1.5 text-xs font-bold text-slate-500 hover:text-emerald-500 border border-slate-200 dark:border-slate-700 rounded-lg hover:border-emerald-500/30 transition-colors">Today</button>
+        <div className="flex items-center bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
+          <button onClick={prev} className="px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 border-r border-slate-200 dark:border-slate-800 transition-colors"><Ic name="chevron_left" className="text-lg text-slate-400"/></button>
+          <div className="px-5 py-2 text-sm font-bold flex items-center gap-2 min-w-[180px] justify-center select-none">
+            <Ic name="calendar_month" className="text-emerald-500 text-lg"/><span className="text-slate-900 dark:text-white">{mNames[month]} {year}</span>
+          </div>
+          <button onClick={next} className="px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 border-l border-slate-200 dark:border-slate-800 transition-colors"><Ic name="chevron_right" className="text-lg text-slate-400"/></button>
+        </div>
+      </div>
+    </div>
+
+    {/* Calendar Grid */}
+    <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 overflow-hidden">
+      {/* Day-of-week headers */}
+      <div className="grid grid-cols-7 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700">
+        {["Sun","Mon","Tue","Wed","Thu","Fri","Sat"].map((d,i) => (
+          <div key={d} className={`py-3 text-center text-[11px] font-bold uppercase tracking-widest ${i===0||i===6 ? "text-slate-300 dark:text-slate-600" : "text-slate-500 dark:text-slate-400"}`}>{d}</div>
+        ))}
+      </div>
+      {/* Cells */}
+      <div className="grid grid-cols-7">
+        {cells.map((c,i) => {
+          const has = c.dayNum && c.status;
+          const weekend = i % 7 === 0 || i % 7 === 6;
+          const todayCell = isToday(c.dayNum);
+          const row = Math.floor(i / 7);
+          const lastRow = row === Math.floor((cells.length - 1) / 7);
+          const col = i % 7;
+          return (
+            <div key={i}
+              onClick={() => c.dayNum && onNavigate("day-detail", {date: c.dayStr || toISO(year,month,c.dayNum)})}
+              className={[
+                "relative min-h-[120px] p-2.5 transition-all duration-150",
+                // Borders
+                col > 0 ? "border-l border-slate-100 dark:border-slate-800" : "",
+                row > 0 ? "border-t border-slate-100 dark:border-slate-800" : "",
+                // Background
+                !c.dayNum ? "bg-slate-50/50 dark:bg-slate-800/20" :
+                has ? `${cellBg[c.status]} ${accentBar[c.status]}` :
+                weekend ? "bg-slate-50/80 dark:bg-slate-800/20" : "bg-white dark:bg-slate-900",
+                // Interaction
+                c.dayNum ? "cursor-pointer hover:bg-emerald-50/50 dark:hover:bg-emerald-900/10 hover:shadow-inner" : "",
+                // Today ring
+                todayCell ? "ring-2 ring-inset ring-emerald-500 z-10" : "",
+              ].filter(Boolean).join(" ")}
+            >
+              {/* Day number */}
+              {c.dayNum && (
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className={[
+                    "text-sm font-bold leading-none",
+                    todayCell ? "bg-emerald-500 text-white w-7 h-7 rounded-full flex items-center justify-center" : "",
+                    !todayCell && c.status === "overbooked" ? "text-red-500" :
+                    !todayCell && c.status === "closed" ? "text-slate-400" :
+                    !todayCell && has ? "text-slate-700 dark:text-slate-200" :
+                    !todayCell ? "text-slate-400 dark:text-slate-500" : "",
+                  ].filter(Boolean).join(" ")}>{c.dayNum}</span>
+                  {has && c.booked > 0 && (
+                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                      c.status === "overbooked" ? "bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400" :
+                      c.status === "full" ? "bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400" :
+                      "bg-slate-100 dark:bg-slate-800 text-slate-500"
+                    }`}>{c.booked}/{c.capacity}</span>
+                  )}
+                </div>
+              )}
+              {/* Status pill */}
+              {has && (
+                <div className="space-y-1.5">
+                  <div className={`px-2 py-1 rounded-lg text-[10px] font-bold text-center leading-tight ${pillBg[c.status]}`}>
+                    {c.label}
+                  </div>
+                  {/* Mini bar showing capacity fill */}
+                  {c.booked > 0 && (
+                    <div className="h-1 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full transition-all ${
+                        c.status === "overbooked" ? "bg-red-500" :
+                        c.status === "full" ? "bg-amber-400" :
+                        c.status === "closed" ? "bg-slate-400" :
+                        "bg-emerald-500"
+                      }`} style={{width: `${Math.min(100, (c.booked/c.capacity)*100)}%`}} />
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+
+    {/* Legend */}
+    <div className="flex flex-wrap items-center gap-5 px-5 py-3.5 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mr-1">Legend:</span>
+      {[
+        ["Open","bg-slate-200 dark:bg-slate-600"],
+        ["Full","bg-amber-400"],
+        ["Overbooked","bg-red-500"],
+        ["Instructions","bg-emerald-500"],
+        ["Invoiced","bg-yellow-400"],
+        ["Notified","bg-blue-400"],
+        ["Closed","bg-slate-500"],
+      ].map(([l,c]) => (
+        <div key={l} className="flex items-center gap-2">
+          <div className={`w-3 h-3 rounded-full ${c}`} />
+          <span className="text-xs font-medium text-slate-600 dark:text-slate-400">{l}</span>
+        </div>
+      ))}
+    </div>
+  </div>;
+}
+
+// ═══════════════ DAY DETAIL ═══════════════
+function DayDetailPage({context}){
+  const {state,dispatch}=useApp();const toast=useToast();const [tab,setTab]=useState("producers");const [showAddP,setShowAddP]=useState(false);const [showAddO,setShowAddO]=useState(false);const [confirmDel,setConfirmDel]=useState(null);
+  const date=context?.date||toISO(2026,5,15);const displayDate=(()=>{const d=new Date(date+"T12:00:00");return fmtDate(d);})();
+  const dayAppts=state.appointments.filter(a=>a.day===date);const dayOrders=state.orders.filter(o=>o.day===date);
+  const producers=state.clients.filter(c=>c.type==="Producer");const customers=state.clients.filter(c=>c.type==="Customer");
+  const addAppt=(data)=>{dispatch({type:"ADD_APPOINTMENT",payload:{day:date,producerId:data.producerId,animalCount:parseInt(data.animalCount)||1,confirmed:false,arrivalPosition:dayAppts.length+1,notes:data.notes||""}});toast("Appointment added");setShowAddP(false);};
+  const addOrd=(data)=>{dispatch({type:"ADD_ORDER",payload:{day:date,producerId:data.producerId,customerId:data.customerId,portion:data.portion,tag:data.tag||`TAG-${Date.now().toString(36).toUpperCase()}`,cut:false,invoiced:false,notified:false,paid:false,hasInstructions:!!data.hasInstructions,instructions:data.instructions||null}});toast("Order created"+(data.hasInstructions?" with instructions":""));setShowAddO(false);};
+  return <div className="space-y-5">
+    <div className="flex flex-col md:flex-row md:items-end justify-between gap-3">
+      <div><Breadcrumb items={["Calendar",displayDate]}/><PageTitle>Day Detail — {displayDate}</PageTitle></div>
+      <div className="flex gap-2"><SmBtn icon="person_add" primary onClick={()=>setShowAddP(true)}>Add Producer</SmBtn><SmBtn icon="add_circle" primary onClick={()=>setShowAddO(true)}>Add Order</SmBtn></div>
+    </div>
+    <TabBar tabs={[{id:"producers",label:"Producers",count:dayAppts.length},{id:"orders",label:"Orders",count:dayOrders.length}]} active={tab} onChange={setTab}/>
+    {tab==="producers"&&<>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <StatCard label="Appointments" value={dayAppts.length} icon="group" iconBg="bg-emerald-500/15 text-emerald-400"/>
+        <StatCard label="Confirmed" value={dayAppts.filter(a=>a.confirmed).length} icon="check_circle" iconBg="bg-emerald-500/15 text-emerald-400" trend={`${dayAppts.length?Math.round(dayAppts.filter(a=>a.confirmed).length/dayAppts.length*100):0}%`}/>
+        <StatCard label="Total Animals" value={dayAppts.reduce((s,a)=>s+a.animalCount,0)} icon="pets" iconBg="bg-blue-500/15 text-blue-400"/>
+      </div>
+      <TableShell title="Arrival Schedule" pagination={`${dayAppts.length} scheduled`} actions={<SmBtn icon="person_add" primary onClick={()=>setShowAddP(true)}>Add</SmBtn>}>
+        <table className="w-full text-left"><thead><tr className="bg-slate-50 dark:bg-slate-800/50">{["#","Producer","Animals","Status","Actions"].map((h,i)=><th key={h} className={`px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-slate-400 ${i===4?"text-right":""}`}>{h}</th>)}</tr></thead>
+        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+          {dayAppts.length===0&&<tr><td colSpan={5} className="px-5 py-10 text-center text-slate-400 text-sm">No producers scheduled yet.</td></tr>}
+          {dayAppts.map((a,i)=>{const pr=state.clients.find(c=>c.id===a.producerId);return <tr key={a.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+            <td className="px-5 py-4"><div className="h-9 w-9 rounded-full bg-emerald-500/20 flex items-center justify-center font-bold text-sm">{i+1}</div></td>
+            <td className="px-5 py-4"><p className="text-sm font-bold text-slate-900 dark:text-white">{pr?.name||"Unknown"}</p><p className="text-xs text-slate-400">{pr?.phone}</p></td>
+            <td className="px-5 py-4"><span className="text-xs font-bold bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full">{a.animalCount} animals</span></td>
+            <td className="px-5 py-4"><button onClick={()=>{dispatch({type:"TOGGLE_CONFIRM",payload:a.id});toast(a.confirmed?"Marked pending":"Confirmed!");}}><StatusPill status={a.confirmed?"Confirmed":"Pending"}/></button></td>
+            <td className="px-5 py-4 text-right"><div className="flex justify-end gap-2">{!a.confirmed&&<SmBtn onClick={()=>{dispatch({type:"TOGGLE_CONFIRM",payload:a.id});toast("Confirmed");}}>Notify</SmBtn>}<button onClick={()=>setConfirmDel({type:"apt",id:a.id,name:pr?.name})} className="text-red-400 hover:text-red-300"><Ic name="delete" className="text-lg"/></button></div></td>
+          </tr>;})}
+        </tbody></table>
+      </TableShell>
+    </>}
+    {tab==="orders"&&<>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <StatCard label="Orders" value={dayOrders.length} icon="inventory_2" iconBg="bg-emerald-500/15 text-emerald-400"/>
+        <StatCard label="Instructions In" value={dayOrders.filter(o=>o.hasInstructions).length} icon="check_circle" iconBg="bg-emerald-500/15 text-emerald-400"/>
+        <StatCard label="Missing" value={dayOrders.filter(o=>!o.hasInstructions).length} icon="warning" iconBg="bg-red-500/15 text-red-400" trendColor="text-red-400" trend={dayOrders.filter(o=>!o.hasInstructions).length>0?"Action required":"All done"}/>
+      </div>
+      <TableShell title="Orders" pagination={`${dayOrders.length} order(s)`} actions={<SmBtn icon="add_circle" primary onClick={()=>setShowAddO(true)}>Add</SmBtn>}>
+        <table className="w-full text-left"><thead><tr className="bg-slate-50 dark:bg-slate-800/50">{["Customer","Portion","Tag","Instructions","Cut","Actions"].map((h,i)=><th key={h} className={`px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-slate-400 ${i===5?"text-right":""}`}>{h}</th>)}</tr></thead>
+        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+          {dayOrders.length===0&&<tr><td colSpan={6} className="px-5 py-10 text-center text-slate-400 text-sm">No orders yet.</td></tr>}
+          {dayOrders.map(o=>{const cu=state.clients.find(c=>c.id===o.customerId);return <tr key={o.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+            <td className="px-5 py-4"><p className="text-sm font-bold text-slate-900 dark:text-white">{cu?.name||"Unknown"}</p><p className="text-[11px] text-slate-400">{cu?.email}</p></td>
+            <td className="px-5 py-4"><span className="text-xs font-bold bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full uppercase">{o.portion}</span></td>
+            <td className="px-5 py-4 text-sm font-bold text-slate-600 dark:text-slate-300"><Ic name="tag" className="text-slate-400 text-sm mr-1"/>{o.tag}</td>
+            <td className="px-5 py-4"><StatusPill status={o.hasInstructions?"Submitted":"Missing"}/></td>
+            <td className="px-5 py-4"><button onClick={()=>{dispatch({type:"TOGGLE_FLAG",payload:{orderId:o.id,flag:"cut"}});toast(o.cut?"Unmarked":"Cut!");}}>
+              <Ic name={o.cut?"check_circle":"circle"} className={`text-xl ${o.cut?"text-emerald-500":"text-slate-300"}`}/></button></td>
+            <td className="px-5 py-4 text-right"><div className="flex justify-end gap-2">{!o.hasInstructions&&<SmBtn onClick={()=>{toast("Reminder sent to "+(cu?.name||"customer"));dispatch({type:"ADD_SMS",payload:{orderId:o.id,to:cu?.phone||"",kind:"instructions_needed",body:"Please submit cutting instructions."}});}}>Notify</SmBtn>}
+            <button onClick={()=>setConfirmDel({type:"ord",id:o.id,name:cu?.name})} className="text-red-400 hover:text-red-300"><Ic name="delete" className="text-lg"/></button></div></td>
+          </tr>;})}
+        </tbody></table>
+      </TableShell>
+    </>}
+    <Modal open={showAddP} onClose={()=>setShowAddP(false)} title="Add Producer Appointment">
+      <FormAppt producers={producers} onSubmit={addAppt} onCancel={()=>setShowAddP(false)}/>
+    </Modal>
+    <Modal open={showAddO} onClose={()=>setShowAddO(false)} title="Create Order" wide>
+      <FormOrd producers={producers} customers={customers} onSubmit={addOrd} onCancel={()=>setShowAddO(false)}/>
+    </Modal>
+    <ConfirmModal open={!!confirmDel} onClose={()=>setConfirmDel(null)} title="Delete?" message={`Remove ${confirmDel?.name||"this item"}?`}
+      onConfirm={()=>{if(confirmDel?.type==="apt") dispatch({type:"DELETE_APPOINTMENT",payload:confirmDel.id});else dispatch({type:"DELETE_ORDER",payload:confirmDel.id});toast("Deleted","info");}}/>
+  </div>;
+}
+function FormAppt({producers,onSubmit,onCancel}){const [f,sF]=useState({producerId:"",animalCount:1,notes:""});return <>
+  <div className="p-6 space-y-4"><Field label="Producer"><select value={f.producerId} onChange={e=>sF({...f,producerId:e.target.value})} className={iCls}><option value="">Select...</option>{producers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
+  <Field label="Animal Count"><input type="number" min={1} value={f.animalCount} onChange={e=>sF({...f,animalCount:e.target.value})} className={iCls}/></Field>
+  <Field label="Notes"><input value={f.notes} onChange={e=>sF({...f,notes:e.target.value})} className={iCls} placeholder="Optional..."/></Field></div>
+  <div className="px-6 py-4 bg-slate-50 dark:bg-slate-800/50 flex justify-end gap-3"><button onClick={onCancel} className="px-4 py-2 text-sm font-bold text-slate-500">Cancel</button><button onClick={()=>f.producerId&&onSubmit(f)} disabled={!f.producerId} className="px-5 py-2 bg-emerald-500 text-slate-900 text-sm font-bold rounded-lg hover:bg-emerald-400 disabled:opacity-50">Add</button></div></>;}
+function FormOrd({producers,customers,onSubmit,onCancel}){
+  const [f,sF]=useState({producerId:"",customerId:"",portion:"1/2 Beef",tag:"",includeInstr:true,steakThickness:"1 inch",roastSize:"3-4 lbs",groundPack:"1 lb tubes",patties:"Bulk only",specialItems:[],instrNotes:""});
+  const togSpec=it=>sF({...f,specialItems:f.specialItems.includes(it)?f.specialItems.filter(x=>x!==it):[...f.specialItems,it]});
+  const handleSubmit=()=>{
+    if(!f.producerId||!f.customerId) return;
+    const out={producerId:f.producerId,customerId:f.customerId,portion:f.portion,tag:f.tag};
+    if(f.includeInstr){out.hasInstructions=true;out.instructions={steakThickness:f.steakThickness,roastSize:f.roastSize,groundPack:f.groundPack,patties:f.patties,specialItems:f.specialItems,notes:f.instrNotes};}
+    onSubmit(out);
+  };
+  return <>
+  <div className="p-6 space-y-4 max-h-[65vh] overflow-y-auto">
+    <div className="grid grid-cols-2 gap-4">
+      <Field label="Producer"><select value={f.producerId} onChange={e=>sF({...f,producerId:e.target.value})} className={iCls}><option value="">Select...</option>{producers.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></Field>
+      <Field label="Customer"><select value={f.customerId} onChange={e=>sF({...f,customerId:e.target.value})} className={iCls}><option value="">Select...</option>{customers.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
+    </div>
+    <div className="grid grid-cols-2 gap-4">
+      <Field label="Portion"><select value={f.portion} onChange={e=>sF({...f,portion:e.target.value})} className={iCls}>{["1/4 Beef","1/2 Beef","Whole Beef","Whole Hog","1/2 Hog"].map(p=><option key={p}>{p}</option>)}</select></Field>
+      <Field label="Tag"><input value={f.tag} onChange={e=>sF({...f,tag:e.target.value})} className={iCls} placeholder="BF-001"/></Field>
+    </div>
+    {/* Instructions toggle */}
+    <div className="pt-2 border-t border-slate-200 dark:border-slate-800">
+      <label className="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" checked={f.includeInstr} onChange={e=>sF({...f,includeInstr:e.target.checked})} className="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500"/>
+        <div><span className="text-sm font-bold text-slate-900 dark:text-white">Include Cutting Instructions</span><p className="text-[11px] text-slate-400">Attach processing preferences to this order</p></div>
+      </label>
+    </div>
+    {f.includeInstr&&<div className="space-y-4 p-4 bg-emerald-500/5 border border-emerald-500/15 rounded-xl">
+      <div className="flex items-center gap-2 mb-1"><Ic name="content_cut" className="text-emerald-500 text-lg"/><span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">Cutting Preferences</span></div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Steak Thickness"><select value={f.steakThickness} onChange={e=>sF({...f,steakThickness:e.target.value})} className={iCls}>{["3/4 inch","1 inch","1 1/4 inch","1 1/2 inch","2 inches"].map(o=><option key={o}>{o}</option>)}</select></Field>
+        <Field label="Roast Size"><select value={f.roastSize} onChange={e=>sF({...f,roastSize:e.target.value})} className={iCls}>{["2-3 lbs","3-4 lbs","4-5 lbs"].map(o=><option key={o}>{o}</option>)}</select></Field>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Ground Pack"><select value={f.groundPack} onChange={e=>sF({...f,groundPack:e.target.value})} className={iCls}>{["1 lb tubes","1.5 lb tubes","2 lb tubes"].map(o=><option key={o}>{o}</option>)}</select></Field>
+        <Field label="Patties"><select value={f.patties} onChange={e=>sF({...f,patties:e.target.value})} className={iCls}>{["Bulk only","4 per pack","6 per pack"].map(o=><option key={o}>{o}</option>)}</select></Field>
+      </div>
+      <Field label="Specialty Items">
+        <div className="grid grid-cols-2 gap-2">{["Beef Jerky","Snack Sticks","Summer Sausage","Pepperoni Sticks"].map(it=>
+          <label key={it} className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer text-xs font-medium transition-colors ${f.specialItems.includes(it)?"border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400":"border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-emerald-500/50"}`}>
+            <input type="checkbox" checked={f.specialItems.includes(it)} onChange={()=>togSpec(it)} className="w-3.5 h-3.5 rounded text-emerald-500 focus:ring-emerald-500"/>{it}
+          </label>)}</div>
+      </Field>
+      <Field label="Special Notes"><input value={f.instrNotes} onChange={e=>sF({...f,instrNotes:e.target.value})} className={iCls} placeholder="e.g., Double-wrap T-bones, save bones..."/></Field>
+    </div>}
+  </div>
+  <div className="px-6 py-4 bg-slate-50 dark:bg-slate-800/50 flex justify-end gap-3 border-t border-slate-200 dark:border-slate-800"><button onClick={onCancel} className="px-4 py-2 text-sm font-bold text-slate-500">Cancel</button><button onClick={handleSubmit} disabled={!f.producerId||!f.customerId} className="px-5 py-2 bg-emerald-500 text-slate-900 text-sm font-bold rounded-lg hover:bg-emerald-400 disabled:opacity-50">Create Order</button></div></>;}
+
+// ═══════════════ ORDERS LIST ═══════════════
+function OrdersPage({onNavigate}){
+  const {state,dispatch}=useApp();const toast=useToast();const [filter,setFilter]=useState("all");const [pg,setPg]=useState(1);const perPage=8;
+  const filtered=useMemo(()=>{let l=[...state.orders];if(filter==="cut") l=l.filter(o=>!o.cut);else if(filter==="invoice") l=l.filter(o=>o.cut&&!o.invoiced);else if(filter==="notify") l=l.filter(o=>o.invoiced&&!o.notified);return l;},[state.orders,filter]);
+  const tp=Math.max(1,Math.ceil(filtered.length/perPage));const pageItems=filtered.slice((pg-1)*perPage,pg*perPage);
+  useEffect(()=>{setPg(1);},[filter]);
+  return <div className="space-y-5">
+    <div><Breadcrumb items={["Orders"]}/><PageTitle>Unified Orders List</PageTitle></div>
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <StatCard label="Total" value={state.orders.length} onClick={()=>setFilter("all")}/>
+      <StatCard label="To Cut" value={state.orders.filter(o=>!o.cut).length} borderColor="border-l-4 border-l-amber-500" onClick={()=>setFilter("cut")}/>
+      <StatCard label="To Invoice" value={state.orders.filter(o=>o.cut&&!o.invoiced).length} borderColor="border-l-4 border-l-blue-500" onClick={()=>setFilter("invoice")}/>
+      <StatCard label="To Notify" value={state.orders.filter(o=>o.invoiced&&!o.notified).length} borderColor="border-l-4 border-l-emerald-500" onClick={()=>setFilter("notify")}/>
+    </div>
+    <div className="flex flex-wrap gap-1.5 bg-white dark:bg-slate-900 p-3 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+      {[{id:"all",label:"All"},{id:"cut",label:"To Cut",icon:"content_cut"},{id:"invoice",label:"To Invoice",icon:"receipt_long"},{id:"notify",label:"To Notify",icon:"notifications_active"}].map(f=>
+        <button key={f.id} onClick={()=>setFilter(f.id)} className={`px-3 py-1.5 rounded-lg text-sm font-bold transition-all flex items-center gap-1.5 ${filter===f.id?"bg-emerald-500 text-slate-900":"bg-slate-50 dark:bg-slate-800 hover:bg-emerald-500/10 text-slate-600 dark:text-slate-300"}`}>
+          {f.icon&&<Ic name={f.icon} className="text-sm"/>}{f.label}</button>)}
+    </div>
+    <TableShell pagination={`Showing ${(pg-1)*perPage+1}-${Math.min(pg*perPage,filtered.length)} of ${filtered.length}`} page={pg} totalPages={tp} onPageChange={setPg}>
+      <table className="w-full text-left"><thead><tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800">
+        {["Order","Customer","Day","Cut","Invoiced","Notified","Paid",""].map((h,i)=><th key={h+i} className={`px-4 py-3 text-[10px] font-bold uppercase tracking-widest text-slate-400 ${i>=3&&i<=6?"text-center":""} ${i===7?"text-right":""}`}>{h}</th>)}
+      </tr></thead>
+      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+        {pageItems.length===0&&<tr><td colSpan={8} className="px-5 py-10 text-center text-slate-400 text-sm">No orders match this filter.</td></tr>}
+        {pageItems.map(o=>{const cu=state.clients.find(c=>c.id===o.customerId);const init=(cu?.name||"??").split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();
+        return <tr key={o.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+          <td className="px-4 py-3.5"><button onClick={()=>onNavigate("order-detail",{orderId:o.id})} className="font-mono text-xs font-bold text-emerald-500 hover:underline">{o.id.slice(0,12)}</button><p className="text-[10px] text-slate-400">{o.portion} · {o.tag}</p></td>
+          <td className="px-4 py-3.5"><div className="flex items-center gap-2"><div className="h-8 w-8 rounded-lg bg-emerald-500/20 flex items-center justify-center text-xs font-bold">{init}</div><p className="text-sm font-bold text-slate-900 dark:text-white">{cu?.name||"?"}</p></div></td>
+          <td className="px-4 py-3.5 text-sm text-slate-500">{o.day}</td>
+          {["cut","invoiced","notified","paid"].map(flag=><td key={flag} className="px-4 py-3.5 text-center">
+            <button onClick={()=>{dispatch({type:"TOGGLE_FLAG",payload:{orderId:o.id,flag}});toast(`${flag} ${o[flag]?"unchecked":"checked"}`);}}>
+              <Ic name={o[flag]?"check_circle":"circle"} className={`text-xl transition-colors ${o[flag]?"text-emerald-500":"text-slate-200 dark:text-slate-700 hover:text-slate-400"}`}/>
+            </button></td>)}
+          <td className="px-4 py-3.5 text-right"><button onClick={()=>onNavigate("order-detail",{orderId:o.id})} className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded text-slate-400 hover:text-emerald-400"><Ic name="visibility" className="text-lg"/></button></td>
+        </tr>;})}
+      </tbody></table>
+    </TableShell>
+  </div>;
+}
+
+// ═══════════════ ORDER DETAIL ═══════════════
+function OrderDetailPage({context,onNavigate}){
+  const {state,dispatch}=useApp();const toast=useToast();
+  const order=state.orders.find(o=>o.id===context?.orderId)||state.orders[0];
+  if(!order) return <div className="p-10 text-center text-slate-400">Order not found</div>;
+  const cu=state.clients.find(c=>c.id===order.customerId);const pr=state.clients.find(c=>c.id===order.producerId);
+  const smsLogs=state.smsLog.filter(s=>s.orderId===order.id);
+  const [showSms,setShowSms]=useState(false);const [smsBody,setSmsBody]=useState("");
+  const sendSms=()=>{dispatch({type:"ADD_SMS",payload:{orderId:order.id,to:cu?.phone||"",kind:"custom",body:smsBody}});toast("SMS sent to "+(cu?.name||"customer"));setSmsBody("");setShowSms(false);};
+  return <div className="space-y-5">
+    <div className="flex flex-wrap justify-between items-end gap-4">
+      <div><Breadcrumb items={["Orders",order.id.slice(0,12)]}/>
+        <div className="flex items-center gap-2.5 mt-1"><PageTitle>Order {order.id.slice(0,12)}</PageTitle>
+          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${order.paid?"bg-emerald-500/20 text-emerald-400":"bg-amber-500/20 text-amber-400"}`}>{order.paid?"Complete":order.cut?"Processing":"Pending"}</span>
+        </div>
+        <div className="flex items-center gap-3 text-slate-400 mt-1.5 text-sm"><span className="flex items-center gap-1"><Ic name="calendar_today" className="text-xs"/>{order.day}</span><span className="border-l border-slate-300 dark:border-slate-700 pl-3 flex items-center gap-1"><Ic name="person" className="text-xs"/>{cu?.name||"?"}</span></div>
+      </div>
+      <div className="flex gap-2"><SmBtn icon="arrow_back" onClick={()=>onNavigate("orders")}>Back</SmBtn><SmBtn icon="send" primary onClick={()=>setShowSms(true)}>Send SMS</SmBtn></div>
+    </div>
+    {/* Status toggles */}
+    <div className="flex flex-wrap gap-3 bg-white dark:bg-slate-900 p-4 rounded-xl border border-slate-200 dark:border-slate-800">
+      {["cut","invoiced","notified","paid"].map(flag=><button key={flag} onClick={()=>{dispatch({type:"TOGGLE_FLAG",payload:{orderId:order.id,flag}});toast(`${flag} ${order[flag]?"unchecked":"checked"}`);}}
+        className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${order[flag]?"bg-emerald-500/15 text-emerald-500 ring-1 ring-emerald-500/30":"bg-slate-100 dark:bg-slate-800 text-slate-400 hover:text-slate-600"}`}>
+        <Ic name={order[flag]?"check_circle":"circle"} className="text-lg"/><span className="capitalize">{flag}</span></button>)}
+    </div>
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div className="lg:col-span-2 space-y-5">
+        {/* Instructions */}
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center"><h3 className="text-base font-bold text-slate-900 dark:text-white">Cutting Instructions</h3><StatusPill status={order.hasInstructions?"Submitted":"Missing"}/></div>
+          <div className="p-5">{order.instructions?<div className="grid grid-cols-2 gap-4">
+            {Object.entries(order.instructions).filter(([k])=>k!=="specialItems").map(([k,v])=><div key={k}><p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">{k.replace(/([A-Z])/g," $1")}</p><p className="text-sm font-semibold text-slate-800 dark:text-slate-200 mt-0.5">{v}</p></div>)}
+            {order.instructions.specialItems?.length>0&&<div className="col-span-2"><p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Specialty Items</p><p className="text-sm font-semibold text-slate-800 dark:text-slate-200 mt-0.5">{order.instructions.specialItems.join(", ")}</p></div>}
+          </div>:<div className="text-center py-6"><Ic name="description" className="text-4xl text-slate-300 mb-2"/><p className="text-sm text-slate-400 mb-3">No instructions yet</p>
+            <SmBtn icon="send" onClick={()=>{toast("Reminder sent");dispatch({type:"ADD_SMS",payload:{orderId:order.id,to:cu?.phone||"",kind:"instructions_needed",body:"Please submit cutting instructions."}});}}>Send Reminder</SmBtn></div>}
+          </div>
+        </div>
+        {/* SMS Log */}
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden">
+          <div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center"><h3 className="text-base font-bold text-slate-900 dark:text-white">SMS Log ({smsLogs.length})</h3><button onClick={()=>setShowSms(true)} className="text-emerald-400 text-sm font-bold flex items-center gap-1 hover:underline"><Ic name="send" className="text-sm"/> Send</button></div>
+          {smsLogs.length===0&&<p className="p-5 text-sm text-slate-400 text-center">No messages sent</p>}
+          {smsLogs.map(s=><div key={s.id} className="p-5 flex gap-3 border-b last:border-b-0 border-slate-100 dark:border-slate-800">
+            <div className="shrink-0 w-9 h-9 rounded-full bg-emerald-500/15 flex items-center justify-center text-emerald-400"><Ic name="sms"/></div>
+            <div className="flex-1"><div className="flex justify-between items-start mb-0.5"><span className="text-sm font-bold text-slate-900 dark:text-white capitalize">{s.kind.replace(/_/g," ")}</span><span className="text-[11px] text-slate-400">{new Date(s.sentAt).toLocaleString()}</span></div><p className="text-sm text-slate-500 italic">{s.body}</p></div>
+          </div>)}
+        </div>
+      </div>
+      {/* Sidebar cards */}
+      <div className="space-y-5">
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm">
+          <h4 className="text-[10px] font-bold mb-3 uppercase tracking-widest text-slate-400">Customer</h4>
+          <p className="text-lg font-bold text-slate-900 dark:text-white">{cu?.name||"?"}</p>
+          {cu?.phone&&<div className="flex items-center gap-2.5 mt-2"><Ic name="phone" className="text-emerald-400 text-lg"/><span className="text-sm text-slate-600 dark:text-slate-300">{cu.phone}</span></div>}
+          {cu?.email&&<div className="flex items-center gap-2.5 mt-1"><Ic name="mail" className="text-emerald-400 text-lg"/><span className="text-sm text-slate-600 dark:text-slate-300">{cu.email}</span></div>}
+          {cu?.notes&&<p className="text-xs text-slate-400 mt-2 pt-2 border-t border-slate-100 dark:border-slate-800">{cu.notes}</p>}
+        </div>
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm">
+          <h4 className="text-[10px] font-bold mb-3 uppercase tracking-widest text-slate-400">Producer</h4>
+          <p className="text-base font-bold text-slate-900 dark:text-white">{pr?.name||"?"}</p>{pr?.phone&&<p className="text-sm text-slate-500 mt-1">{pr.phone}</p>}
+        </div>
+        <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-5 shadow-sm">
+          <h4 className="text-[10px] font-bold mb-3 uppercase tracking-widest text-slate-400">Order Info</h4>
+          {[["Portion",order.portion],["Tag",order.tag],["Day",order.day]].map(([k,v])=><div key={k} className="flex justify-between text-sm py-1.5 border-b border-slate-50 dark:border-slate-800 last:border-b-0"><span className="text-slate-400">{k}</span><span className="font-bold text-slate-700 dark:text-slate-300">{v}</span></div>)}
+        </div>
+      </div>
+    </div>
+    <Modal open={showSms} onClose={()=>setShowSms(false)} title="Send SMS">
+      <div className="p-6 space-y-4"><p className="text-sm text-slate-500">To <strong>{cu?.name}</strong> at {cu?.phone||"N/A"}</p>
+        <Field label="Message"><textarea value={smsBody} onChange={e=>setSmsBody(e.target.value)} className={`${iCls} min-h-[100px]`} placeholder="Type message..."/></Field></div>
+      <div className="px-6 py-4 bg-slate-50 dark:bg-slate-800/50 flex justify-end gap-3"><button onClick={()=>setShowSms(false)} className="px-4 py-2 text-sm font-bold text-slate-500">Cancel</button>
+        <button onClick={sendSms} disabled={!smsBody.trim()} className="px-5 py-2 bg-emerald-500 text-slate-900 text-sm font-bold rounded-lg hover:bg-emerald-400 disabled:opacity-50">Send</button></div>
+    </Modal>
+  </div>;
+}
+
+// ═══════════════ CLIENTS ═══════════════
+function ClientsPage(){
+  const {state,dispatch}=useApp();const toast=useToast();const [tab,setTab]=useState("all");const [showAdd,setShowAdd]=useState(false);const [editCl,setEditCl]=useState(null);const [confirmDel,setConfirmDel]=useState(null);const [search,setSearch]=useState("");const [pg,setPg]=useState(1);const perPage=8;
+  const filtered=useMemo(()=>{let l=[...state.clients];if(tab==="producers") l=l.filter(c=>c.type==="Producer");if(tab==="customers") l=l.filter(c=>c.type==="Customer");if(search) l=l.filter(c=>c.name.toLowerCase().includes(search.toLowerCase())||c.phone?.includes(search)||c.email?.toLowerCase().includes(search.toLowerCase()));return l;},[state.clients,tab,search]);
+  const tp=Math.max(1,Math.ceil(filtered.length/perPage));const pageItems=filtered.slice((pg-1)*perPage,pg*perPage);
+  useEffect(()=>{setPg(1);},[tab,search]);
+  const save=(data)=>{if(editCl){dispatch({type:"UPDATE_CLIENT",payload:{...editCl,...data}});toast("Client updated");}else{dispatch({type:"ADD_CLIENT",payload:data});toast("Client added");}setShowAdd(false);setEditCl(null);};
+  return <div className="space-y-5">
+    <div className="flex flex-col md:flex-row md:items-end justify-between gap-3">
+      <div><Breadcrumb items={["Clients"]}/><PageTitle>Client Directory</PageTitle></div>
+      <div className="flex bg-white dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200 dark:border-slate-800">
+        {["all","producers","customers"].map(t=><button key={t} onClick={()=>setTab(t)} className={`px-4 py-1.5 text-sm font-bold rounded-md capitalize transition-all ${tab===t?"bg-emerald-500 text-slate-900 shadow-sm":"text-slate-400 hover:text-slate-600"}`}>{t==="all"?"All":t}</button>)}
+      </div>
+    </div>
+    <div className="flex flex-wrap gap-2 items-center justify-between">
+      <div className="relative w-60"><Ic name="search" className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm"/><input value={search} onChange={e=>setSearch(e.target.value)} className="w-full pl-8 pr-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-sm" placeholder="Search clients..."/></div>
+      <SmBtn icon="add_circle" primary onClick={()=>{setEditCl(null);setShowAdd(true);}}>Add Client</SmBtn>
+    </div>
+    <TableShell pagination={`${pageItems.length} of ${filtered.length} clients`} page={pg} totalPages={tp} onPageChange={setPg}>
+      <table className="w-full text-left"><thead className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-800"><tr>
+        {["Name","Type","Phone","Email","Notes","Actions"].map((h,i)=><th key={h} className={`px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-slate-400 ${i===5?"text-right":""}`}>{h}</th>)}
+      </tr></thead>
+      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+        {pageItems.map(c=>{const init=c.name.split(" ").map(w=>w[0]).join("").slice(0,2).toUpperCase();return <tr key={c.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30">
+          <td className="px-5 py-4"><div className="flex items-center gap-2.5"><div className={`h-9 w-9 rounded-full flex items-center justify-center font-bold text-xs ${c.type==="Producer"?"bg-emerald-500/20 text-slate-900 dark:text-white":"bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300"}`}>{init}</div><p className="text-sm font-bold text-slate-900 dark:text-white">{c.name}</p></div></td>
+          <td className="px-5 py-4"><StatusPill status={c.type}>{c.type}</StatusPill></td>
+          <td className="px-5 py-4 text-sm text-slate-500">{c.phone}</td>
+          <td className="px-5 py-4 text-sm text-slate-500">{c.email}</td>
+          <td className="px-5 py-4 text-xs text-slate-400 max-w-[160px] truncate">{c.notes||"—"}</td>
+          <td className="px-5 py-4 text-right"><div className="flex justify-end gap-2"><button onClick={()=>{setEditCl(c);setShowAdd(true);}} className="text-emerald-400 hover:text-emerald-300 font-bold text-sm">Edit</button><button onClick={()=>setConfirmDel(c)} className="text-red-400 hover:text-red-300"><Ic name="delete" className="text-lg"/></button></div></td>
+        </tr>;})}
+      </tbody></table>
+    </TableShell>
+    <Modal open={showAdd} onClose={()=>{setShowAdd(false);setEditCl(null);}} title={editCl?"Edit Client":"Add Client"}>
+      <ClientForm initial={editCl} onSubmit={save} onCancel={()=>{setShowAdd(false);setEditCl(null);}}/>
+    </Modal>
+    <ConfirmModal open={!!confirmDel} onClose={()=>setConfirmDel(null)} title="Delete Client?" message={`Delete "${confirmDel?.name}"? This is permanent.`}
+      onConfirm={()=>{dispatch({type:"DELETE_CLIENT",payload:confirmDel.id});toast("Client deleted","info");}}/>
+  </div>;
+}
+function ClientForm({initial,onSubmit,onCancel}){
+  const [f,sF]=useState(initial||{name:"",type:"Customer",phone:"",email:"",notes:""});const s=(k,v)=>sF({...f,[k]:v});
+  return <><div className="p-6 space-y-4">
+    <div className="grid grid-cols-2 gap-4"><Field label="Name"><input value={f.name} onChange={e=>s("name",e.target.value)} className={iCls} placeholder="Name"/></Field><Field label="Type"><select value={f.type} onChange={e=>s("type",e.target.value)} className={iCls}><option>Producer</option><option>Customer</option></select></Field></div>
+    <div className="grid grid-cols-2 gap-4"><Field label="Phone"><input value={f.phone} onChange={e=>s("phone",e.target.value)} className={iCls} placeholder="(555) 000-0000"/></Field><Field label="Email"><input value={f.email} onChange={e=>s("email",e.target.value)} className={iCls} placeholder="email@example.com"/></Field></div>
+    <Field label="Notes"><textarea value={f.notes} onChange={e=>s("notes",e.target.value)} className={`${iCls} min-h-[80px]`} placeholder="Internal notes..."/></Field>
+  </div>
+  <div className="px-6 py-4 bg-slate-50 dark:bg-slate-800/50 flex justify-end gap-3"><button onClick={onCancel} className="px-4 py-2 text-sm font-bold text-slate-500">Cancel</button><button onClick={()=>f.name&&onSubmit(f)} disabled={!f.name} className="px-5 py-2 bg-emerald-500 text-slate-900 text-sm font-bold rounded-lg hover:bg-emerald-400 disabled:opacity-50">{initial?"Save":"Add"}</button></div></>;
+}
+
+// ═══════════════ MANAGEMENT ═══════════════
+function ManagementPage(){
+  const {state,dispatch}=useApp();const toast=useToast();const [tab,setTab]=useState("capacity");const [settings,setSettings]=useState(state.settings);const [smsTab,setSmsTab]=useState("appt_confirm");
+  const save=()=>{dispatch({type:"UPDATE_SETTINGS",payload:settings});toast("Settings saved");};
+  const reset=()=>{setSettings({...settings,cattleLimit:12,sheepLimit:45,pigsLimit:20,weightLimit:5000});toast("Defaults restored","info");};
+  return <div className="space-y-5">
+    <div><Breadcrumb items={["Management","Settings"]}/><PageTitle>Management Settings</PageTitle></div>
+    <TabBar tabs={[{id:"capacity",label:"Day Capacity"},{id:"sms",label:"SMS Templates"}]} active={tab} onChange={setTab}/>
+    {tab==="capacity"&&<div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+      <h2 className="text-lg font-black text-slate-900 dark:text-white">Day Capacity</h2><p className="mt-1.5 text-slate-400 text-sm">Configure maximum operational limits.</p>
+      <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-5">
+        {[["cattleLimit","Cattle Limit"],["sheepLimit","Sheep/Goats"],["pigsLimit","Pigs"],["weightLimit","Total Weight (kg)"]].map(([k,l])=><Field key={k} label={l}><input type="number" value={settings[k]} onChange={e=>setSettings({...settings,[k]:parseInt(e.target.value)||0})} className={iCls}/></Field>)}
+      </div>
+      <div className="mt-6 bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-3.5 flex gap-3 items-start"><Ic name="info" className="text-emerald-400"/><p className="text-xs text-emerald-400 font-bold leading-normal">Changes take effect for future bookings. Existing bookings exceeding new limits will flag a warning.</p></div>
+      <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3"><button onClick={reset} className="px-5 py-2 text-sm font-bold text-slate-400 hover:text-slate-600">Reset</button><button onClick={save} className="px-6 py-2.5 text-sm font-bold text-slate-900 bg-emerald-500 rounded-lg hover:bg-emerald-400 shadow-lg shadow-emerald-500/20">Save Changes</button></div>
+    </div>}
+    {tab==="sms"&&<div className="bg-white dark:bg-slate-900 p-6 rounded-xl border border-slate-200 dark:border-slate-800 shadow-sm">
+      <h2 className="text-lg font-black text-slate-900 dark:text-white">SMS Templates</h2><p className="mt-1.5 text-slate-400 text-sm mb-4">Customize automated messages.</p>
+      <div className="flex gap-2 mb-4">{Object.keys(settings.smsTemplates).map(k=><button key={k} onClick={()=>setSmsTab(k)} className={`px-3 py-1.5 rounded-lg text-xs font-bold capitalize transition-all ${smsTab===k?"bg-emerald-500 text-slate-900":"bg-slate-100 dark:bg-slate-800 text-slate-500"}`}>{k.replace(/_/g," ")}</button>)}</div>
+      <Field label={smsTab.replace(/_/g," ")}><textarea value={settings.smsTemplates[smsTab]} onChange={e=>setSettings({...settings,smsTemplates:{...settings.smsTemplates,[smsTab]:e.target.value}})} className={`${iCls} min-h-[120px]`}/></Field>
+      <p className="text-[11px] text-slate-400 mt-2">Variables: {"{name}"}, {"{orderId}"}, {"{link}"}, {"{date}"}</p>
+      <div className="mt-6 flex justify-end"><button onClick={save} className="px-6 py-2.5 text-sm font-bold text-slate-900 bg-emerald-500 rounded-lg hover:bg-emerald-400">Save Templates</button></div>
+    </div>}
+  </div>;
+}
+
+// ═══════════════ CUT SHEET PORTAL ═══════════════
+function CutSheetPortal({onNavigate}){
+  const toast=useToast();const [f,sF]=useState({steakThickness:"",roastSize:"",groundPack:"",patties:"",specialItems:[],notes:""});const [done,setDone]=useState(false);
+  const togSpec=it=>sF({...f,specialItems:f.specialItems.includes(it)?f.specialItems.filter(x=>x!==it):[...f.specialItems,it]});
+  const submit=()=>{if(!f.steakThickness||!f.roastSize){toast("Fill required fields","error");return;}setDone(true);toast("Instructions submitted!");};
+  if(done) return <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex items-center justify-center p-4">
+    <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 p-10 text-center max-w-md shadow-xl">
+      <div className="w-16 h-16 bg-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-4"><Ic name="check_circle" className="text-emerald-500 text-4xl"/></div>
+      <h2 className="text-2xl font-black text-slate-900 dark:text-white mb-2">Submitted!</h2><p className="text-slate-500 mb-6">We'll process your order according to your specs.</p>
+      <button onClick={()=>{setDone(false);sF({steakThickness:"",roastSize:"",groundPack:"",patties:"",specialItems:[],notes:""});onNavigate("dashboard");}} className="bg-emerald-500 text-slate-900 font-bold px-6 py-3 rounded-xl hover:bg-emerald-400">Back to Dashboard</button>
+    </div></div>;
+  return <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
+    <header className="flex items-center justify-between px-6 md:px-16 py-4 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
+      <div className="flex items-center gap-3"><div className="size-9 bg-emerald-500 rounded-lg flex items-center justify-center text-slate-900"><Ic name="agriculture" className="text-2xl font-bold"/></div><h2 className="text-lg font-bold text-slate-900 dark:text-white tracking-tight">HarvestHQ</h2></div>
+      <button onClick={()=>onNavigate("dashboard")} className="text-sm text-emerald-500 font-bold hover:underline flex items-center gap-1"><Ic name="arrow_back" className="text-sm"/> Dashboard</button>
+    </header>
+    <main className="max-w-3xl mx-auto py-8 px-4">
+      <div className="mb-6"><h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tight">Cutting Instructions</h1><p className="text-slate-500 text-base mt-1">Order #4492 - Custom Processing Form</p></div>
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm space-y-8">
+        <section><div className="flex items-center gap-2 mb-4 border-b border-emerald-500/10 pb-2"><Ic name="restaurant" className="text-emerald-500"/><h2 className="text-xl font-bold text-slate-900 dark:text-white">Steaks & Roasts</h2></div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Field label="Steak Thickness *"><select value={f.steakThickness} onChange={e=>sF({...f,steakThickness:e.target.value})} className={iCls}><option value="">Select...</option>{["3/4 inch","1 inch","1 1/4 inch","1 1/2 inch","2 inches"].map(o=><option key={o}>{o}</option>)}</select></Field>
+            <Field label="Roast Size *"><select value={f.roastSize} onChange={e=>sF({...f,roastSize:e.target.value})} className={iCls}><option value="">Select...</option>{["2-3 lbs","3-4 lbs","4-5 lbs"].map(o=><option key={o}>{o}</option>)}</select></Field>
+          </div></section>
+        <section><div className="flex items-center gap-2 mb-4 border-b border-emerald-500/10 pb-2"><Ic name="inventory_2" className="text-emerald-500"/><h2 className="text-xl font-bold text-slate-900 dark:text-white">Ground & Packaging</h2></div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Field label="Hamburger Pack"><select value={f.groundPack} onChange={e=>sF({...f,groundPack:e.target.value})} className={iCls}><option value="">Select...</option>{["1 lb tubes","1.5 lb tubes","2 lb tubes"].map(o=><option key={o}>{o}</option>)}</select></Field>
+            <Field label="Patties"><select value={f.patties} onChange={e=>sF({...f,patties:e.target.value})} className={iCls}><option value="">Select...</option>{["Bulk only","4 per pack","6 per pack"].map(o=><option key={o}>{o}</option>)}</select></Field>
+          </div></section>
+        <section><div className="flex items-center gap-2 mb-4 border-b border-emerald-500/10 pb-2"><Ic name="stars" className="text-emerald-500"/><h2 className="text-xl font-bold text-slate-900 dark:text-white">Specialty Items</h2></div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">{["Beef Jerky (Original)","Teriyaki Snack Sticks","Summer Sausage","Spicy Pepperoni Sticks"].map(it=>
+            <label key={it} className={`flex items-center gap-3 p-3.5 rounded-lg border cursor-pointer transition-colors ${f.specialItems.includes(it)?"border-emerald-500 bg-emerald-500/5":"border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 hover:border-emerald-500/50"}`}>
+              <input type="checkbox" checked={f.specialItems.includes(it)} onChange={()=>togSpec(it)} className="w-4 h-4 rounded text-emerald-500 focus:ring-emerald-500"/><span className="text-sm font-medium text-slate-700 dark:text-slate-200">{it}</span>
+            </label>)}</div></section>
+        <Field label="Additional Instructions"><textarea value={f.notes} onChange={e=>sF({...f,notes:e.target.value})} className={`${iCls} min-h-[100px]`} placeholder="e.g., Save bones for soup..."/></Field>
+        <button onClick={submit} className="w-full h-14 bg-emerald-500 text-slate-900 text-lg font-bold rounded-xl shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 active:scale-[0.99] transition-all">Submit Instructions</button>
+      </div>
+    </main>
+  </div>;
+}
+
+// ═══════════════ GLOBAL SEARCH RESULTS ═══════════════
+function SearchResults({query,onNavigate}){
+  const {state}=useApp();if(!query) return null;
+  const q=query.toLowerCase();
+  const clients=state.clients.filter(c=>c.name.toLowerCase().includes(q)||c.email?.toLowerCase().includes(q)||c.phone?.includes(q));
+  const orders=state.orders.filter(o=>o.id.includes(q)||o.tag.toLowerCase().includes(q)||o.portion.toLowerCase().includes(q));
+  if(!clients.length&&!orders.length) return <div className="p-10 text-center"><Ic name="search_off" className="text-4xl text-slate-300 mb-2"/><p className="text-sm text-slate-400">No results for "{query}"</p></div>;
+  return <div className="space-y-5">
+    <div><Breadcrumb items={["Search"]}/><PageTitle>Results for "{query}"</PageTitle></div>
+    {clients.length>0&&<div><h3 className="text-sm font-bold text-slate-500 mb-2">Clients ({clients.length})</h3>
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800">
+        {clients.map(c=><button key={c.id} onClick={()=>onNavigate("clients")} className="w-full flex items-center gap-3 px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 text-left">
+          <div className={`h-9 w-9 rounded-full flex items-center justify-center font-bold text-xs ${c.type==="Producer"?"bg-emerald-500/20":"bg-slate-200 dark:bg-slate-700"}`}>{c.name.split(" ").map(w=>w[0]).join("").slice(0,2)}</div>
+          <div><p className="text-sm font-bold text-slate-900 dark:text-white">{c.name}</p><p className="text-xs text-slate-400">{c.type} · {c.phone}</p></div>
+        </button>)}
+      </div></div>}
+    {orders.length>0&&<div><h3 className="text-sm font-bold text-slate-500 mb-2">Orders ({orders.length})</h3>
+      <div className="bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 divide-y divide-slate-100 dark:divide-slate-800">
+        {orders.map(o=>{const cu=state.clients.find(c=>c.id===o.customerId);return <button key={o.id} onClick={()=>onNavigate("order-detail",{orderId:o.id})} className="w-full flex items-center gap-3 px-5 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 text-left">
+          <Ic name="package_2" className="text-emerald-400 text-lg"/>
+          <div><p className="text-sm font-bold text-slate-900 dark:text-white">{o.id.slice(0,12)} · {o.portion}</p><p className="text-xs text-slate-400">{cu?.name||"?"} · {o.day}</p></div>
+        </button>;})}
+      </div></div>}
+  </div>;
+}
+
+// ═══════════════ MAIN APP ═══════════════
+export default function HarvestHQApp(){
+  const [state,dispatch]=useReducer(reducer,null,createSeed);
+  const [page,setPage]=useState("login");const [ctx,setCtx]=useState({});const [collapsed,setCollapsed]=useState(false);const [gSearch,setGSearch]=useState("");
+  const nav=useCallback((target,context={})=>{setPage(target);setCtx(context);setGSearch("");},[]);
+  const appVal=useMemo(()=>({state,dispatch}),[state]);
+  return <ToastProvider><AppCtx.Provider value={appVal}><FontLoader/>
+    {page==="login"?<LoginPage onNavigate={nav}/>:
+     page==="cutsheet"?<CutSheetPortal onNavigate={nav}/>:
+    <div className="flex h-screen overflow-hidden bg-slate-100 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
+      <Sidebar currentPage={page==="day-detail"?"calendar":page==="order-detail"?"orders":page} onNavigate={nav} collapsed={collapsed} onToggle={()=>setCollapsed(!collapsed)}/>
+      <main className="flex-1 flex flex-col overflow-hidden">
+        <TopBar onSearch={setGSearch} searchValue={gSearch} onNavigate={nav}/>
+        <div className="flex-1 overflow-y-auto p-6"><div className="max-w-7xl mx-auto">
+          {gSearch?<SearchResults query={gSearch} onNavigate={nav}/>:
+           page==="dashboard"?<DashboardPage/>:
+           page==="calendar"?<CalendarPage onNavigate={nav}/>:
+           page==="day-detail"?<DayDetailPage context={ctx}/>:
+           page==="orders"?<OrdersPage onNavigate={nav}/>:
+           page==="order-detail"?<OrderDetailPage context={ctx} onNavigate={nav}/>:
+           page==="clients"?<ClientsPage/>:
+           page==="management"?<ManagementPage/>:
+           <DashboardPage/>}
+        </div></div>
+        <Footer/>
+      </main>
+    </div>}
+  </AppCtx.Provider></ToastProvider>;
+}
