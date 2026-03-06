@@ -1,4 +1,43 @@
-import { useState, useEffect, useCallback, createContext, useContext, useRef, useMemo, useReducer } from "react";
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>HarvestHQ — Operations Platform</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌿</text></svg>"/>
+  <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: { extend: {} }
+    };
+  </script>
+  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"></script>
+  <script crossorigin src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0"/>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"/>
+  <style>
+    *, *::before, *::after { font-family: 'Inter', system-ui, -apple-system, sans-serif; }
+    .material-symbols-outlined {
+      font-family: 'Material Symbols Outlined' !important;
+      font-weight: normal; font-style: normal; font-size: inherit;
+      line-height: 1; letter-spacing: normal; text-transform: none;
+      display: inline-block; white-space: nowrap; word-wrap: normal;
+      direction: ltr; -webkit-font-smoothing: antialiased;
+    }
+    @keyframes slideUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    body { margin: 0; padding: 0; }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100">
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useEffect, useCallback, createContext, useContext, useRef, useMemo, useReducer } = React;
 
 let _idCounter = 1000;
 const genId = () => `id-${++_idCounter}-${Date.now().toString(36)}`;
@@ -17,7 +56,7 @@ function ToastProvider({children}){
         <span className="material-symbols-outlined text-lg" style={{fontFamily:"'Material Symbols Outlined'"}}>{t.type==="success"?"check_circle":t.type==="error"?"error":"info"}</span>{t.msg}
       </div>)}
     </div>
-    <style>{`@keyframes slideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}`}</style>
+    
   </ToastCtx.Provider>;
 }
 
@@ -853,7 +892,7 @@ function SearchResults({query,onNavigate}){
 }
 
 // ═══════════════ MAIN APP ═══════════════
-export default function HarvestHQApp(){
+function HarvestHQApp(){
   const [state,dispatch]=useReducer(reducer,null,createSeed);
   const [page,setPage]=useState("login");const [ctx,setCtx]=useState({});const [collapsed,setCollapsed]=useState(false);const [gSearch,setGSearch]=useState("");
   const nav=useCallback((target,context={})=>{setPage(target);setCtx(context);setGSearch("");},[]);
@@ -881,3 +920,9 @@ export default function HarvestHQApp(){
     </div>}
   </AppCtx.Provider></ToastProvider>;
 }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(React.createElement(HarvestHQApp));
+  </script>
+</body>
+</html>
